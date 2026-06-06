@@ -1,0 +1,42 @@
+# Generated content
+
+outputs/**
+
+# Build artifacts
+
+build/**
+dist/**
+target/**
+
+# Flutter
+
+.dart_tool/**
+.flutter-plugins
+.flutter-plugins-dependencies
+
+# Python
+
+**pycache**/**
+*.pyc
+
+# Node
+
+node_modules/**
+
+# Git
+
+.git/**
+
+# IDE
+
+.vscode/**
+.idea/**
+
+# Logs
+
+*.log
+
+# Temporary
+
+tmp/**
+temp/**
