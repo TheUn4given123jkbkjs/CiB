@@ -1,7 +1,7 @@
 # Story Analyst Status
 
 ## Current Phase
-Detailed Architecture & Schema Design (Conceptual Phase Complete)
+Implementation & Optimization (Completed)
 
 ---
 
@@ -11,14 +11,19 @@ Detailed Architecture & Schema Design (Conceptual Phase Complete)
 - [x] Define Inputs/Outputs (Raw Text/Brief → JSON Blueprint)
 - [x] Conduct Director-Centric Review & Gap Analysis
 - [x] Refine Scope (Removed directorial/editing over-engineering)
-- [x] Finalize Data Schema (JSON Blueprint v3.0.0)
-- [x] Design Internal Processing Logic (Story Parser, Graph Engines, Compression Engine)
-- [ ] Implement Parsing Prototypes
-- [ ] Integrate with Knowledge Base & Director Agent mockups
-- [ ] Core Agent Implementation
+- [x] Design Bottom-Up Recursive Summarization Loop
+- [x] Finalize Data Schema (JSON Blueprint v3.1.0 with Director's View & summaries)
+- [x] Design Internal Processing Logic (Story Parser, Graph Engines, Recursive Summarizer, Compression Engine)
+- [x] Implement Parsing Prototypes
+- [x] Core Agent Implementation
+- [x] Integrate with Knowledge Base & Director Agent integration (Director running Story Analyst pipeline)
 
 ---
 
 ## Recent Changes
-- Overhauled README.md to define the Story Understanding Engine.
-- Overhauled ARCHITECTURE.md to document the internal modules, narrative-to-cinematic separation of concerns, and the finalized JSON schema containing the Story Tree, Causality Graph, Asset & Prop Graph, Presence Matrix, Compression Model, and Verification Rules.
+- Implemented complete Story Analyst pipeline modules (`tree.py`, `parser.py`, `graph_engine.py`, `asset_tracker.py`, `summarizer.py`, `compression.py`, `visual_compiler.py`, `story_analyst.py`).
+- Implemented two-stage tension & energy scoring (beat text heuristics + scene level LLM enhancement).
+- Implemented prop state propagation (mutation extraction + temporal logic).
+- Configured core entity guardrails to retain proper names, hook selection, and visual invariants.
+- Added summary provenance lineage tracking (`derived_from`).
+- Integrated Director Agent coordinator (`src/director.py`) to automate inputs/outputs flow (`inputs/script.txt` -> `output/story_blueprint.json`).

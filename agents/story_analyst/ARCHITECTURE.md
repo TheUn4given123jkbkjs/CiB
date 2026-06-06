@@ -1,7 +1,7 @@
 # Story Analyst Architecture
 
 ## Overview
-The Story Analyst operates as a specialized narrative parsing and graph synthesis engine. It processes raw narrative text to construct a structured semantic database of story nodes, causal relationships, asset states, and continuity checkpoints, producing the **Semantic Story Blueprint (JSON)**.
+The Story Analyst operates as a specialized narrative parsing, graph synthesis, and recursive summarization engine. It processes raw narrative text to construct a structured semantic database of story nodes, causal relationships, asset states, and continuity checkpoints, compiling them into a **Semantic Story Blueprint (JSON)**.
 
 ---
 
@@ -9,14 +9,13 @@ The Story Analyst operates as a specialized narrative parsing and graph synthesi
 
 ```mermaid
 graph TD
-    Story[Raw Story Text] --> Parser[Story Parser & Asset Tracker]
-    Parser -->|Entity & Asset Data| AssetGraph[Asset & Presence Engine]
-    Parser -->|Chronological Beats| TreeEng[Hierarchy & Graph Engine]
-    TreeEng -->|Story Tree & Causality DAG| CompEng[Compression Engine]
-    AssetGraph --> VisualEng[Visual Semantic Compiler]
-    TreeEng --> VisualEng
-    CompEng -->|Tension, NCP, Energy| BlueWriter[Semantic Blueprint Writer]
-    VisualEng -->|Invariants, Moods| BlueWriter
+    Story[Raw Story Text] --> Parser[1. Story Parser & Skeleton Tree Builder]
+    Parser -->|Skeleton Tree & Beats| GraphEng[2. Graph Synthesis Engine]
+    GraphEng -->|Causality & Entity Graphs| AssetEng[3. Asset & Presence Engine]
+    AssetEng -->|Asset States & Presence Matrix| RecSummarizer[4. Recursive Summarization Engine]
+    RecSummarizer -->|Leaf-to-Root Synthesized Summaries| CompEng[5. Compression Engine]
+    CompEng -->|Tension & Energy Profiles| VisualEng[6. Visual Semantic Compiler]
+    VisualEng -->|Stable Profiles & Mood Maps| BlueWriter[7. Semantic Blueprint Writer]
     BlueWriter --> Blueprint[Output: Semantic Story Blueprint JSON]
 ```
 
@@ -24,69 +23,100 @@ graph TD
 
 ## Conceptual Model & Internal Modules
 
-### 1. Story Parser & Asset Tracker
-* Extracts raw sentences/paragraphs and parses them into chronological **beats** (action, dialogue, transition).
-* Performs named entity recognition (NER) for characters and locations.
-* Initiates tracking of key items (props) and maps their ownership, location, and condition.
+### 1. Story Parser & Skeleton Tree Builder
+* Parses raw text into chronological **beats** (action, dialogue, transition).
+* Initializes the hierarchy structure, building a skeleton **Story Tree** (Story → Act → Sequence → Scene → Beat) containing only leaf beat content.
+* Performs initial named entity recognition (NER) for characters and locations.
 
-### 2. Hierarchy & Graph Engine
-* Structures chronological beats into a nested **Story Tree** (Story → Act → Sequence → Scene → Beat).
-* Analyzes event logic to construct a directed **Causality Graph** showing setup-payoff dependencies.
+### 2. Graph Synthesis Engine
+* Identifies causal linkages and info setups/payoffs to build the directed **Causality Graph**.
+* Maps evolving character stances to build the **Character Relationship Graph**.
 
 ### 3. Asset & Presence Engine
-* Synthesizes the **Asset & Prop Graph** tracking state transitions (e.g., "sword: intact" → "sword: broken").
-* Generates a lightweight **Presence Matrix** tracking which characters and props exist in each scene/beat.
+* Tracks the ownership, location, and condition of items across the timeline (**Asset & Prop Graph**).
+* Compiles the **Presence Matrix** tracking characters/props present in each scene.
 
-### 4. Compression Engine
+### 4. Recursive Summarization Engine
+* Conducts bottom-up semantic synthesis:
+  * Compiles `beat.description` into `beat.summary`.
+  * Compiles child beat summaries in a scene into `scene.summary`.
+  * Compiles child scene summaries in a sequence into `sequence.summary`.
+  * Compiles child sequence summaries in an act into `act.summary`.
+  * Synthesizes act summaries into the root-level `director_view` block (Executive Summary).
+
+### 5. Compression Engine
 * Ranks scenes into **Importance Tiers** (Tier 1: Core, Tier 2: Subplot, Tier 3: Atmospheric).
-* Computes **Pruning Rules** (e.g., "If Scene X is deleted, Scene Y must also be deleted" to maintain causality).
-* Computes a **Narrative Energy Curve** tracking emotional tension and dramatic energy (0.0 to 1.0) per beat.
+* Computes **Pruning Rules** to maintain narrative coherence.
+* Maps a **Narrative Energy Curve** tracking tension and energy (0.0 to 1.0) per beat.
 
-### 5. Visual Semantic Compiler
-* Formulates stable, text-extracted **Visual Invariant Profiles** for characters and locations.
-* Compiles **Mood & Theme Maps** tracking atmospheric states (e.g., "mood: lonely", "theme: betrayal") across segments.
+### 6. Visual Semantic Compiler
+* Compiles stable **Visual Invariant Profiles** for characters and locations.
+* Generates **Mood & Theme Maps** tracking atmospheric states across segments.
 
-### 6. Semantic Blueprint Writer & Exporter
-* Combines all data representations into the structured JSON schema.
-* Exposes **Reflection Verification Rules** to downstream validation agents.
+### 7. Semantic Blueprint Writer & Exporter
+* Combines the recursive tree, graphs, models, and checklists into the structured JSON schema.
+* Exposes **Reflection Verification Rules** for downstream automated quality checking.
 
 ---
 
-## Semantic Story Blueprint Schema (JSON)
-
-Downstream agents consume this standardized format. The Story Analyst does not embed camera directions or edit cuts, leaving those choices to the Director and Storyboard.
+## Semantic Story Blueprint Schema (JSON v3.1.0)
 
 ```json
 {
   "metadata": {
-    "version": "3.0.0",
+    "version": "3.1.0",
     "analyzer_signature": "StoryAnalyst-v3",
-    "timestamp": "2026-06-04T19:17:19Z",
+    "timestamp": "2026-06-06T13:50:50Z",
     "story_title": "String"
+  },
+  "director_view": {
+    "story_summary": "String",
+    "main_characters": [
+      { "id": "char_id", "role_in_plot": "String" }
+    ],
+    "main_conflicts": [
+      { "conflict_type": "String", "description": "String", "resolution_point": "scene_id" }
+    ],
+    "critical_path_summary": [
+      { "scene_id": "scene_id", "summary": "String" }
+    ],
+    "top_hooks": [
+      {
+        "beat_id":"...",
+        "summary":"...",
+        "hook_type":"mystery|action|emotional",
+        "importance":0.95
+      }
+    ]
   },
   "story_tree": {
     "title": "String",
     "type": "story",
+    "summary": "String",
     "children": [
       {
         "id": "act_id",
         "type": "act",
         "title": "String",
+        "summary": "String",
         "children": [
           {
             "id": "seq_id",
             "type": "sequence",
             "title": "String",
+            "summary": "String",
             "children": [
               {
                 "id": "scene_id",
                 "type": "scene",
                 "title": "String",
+                "summary": "String",
                 "beats": [
                   {
                     "id": "beat_id",
                     "type": "action|dialogue|transition",
                     "description": "String",
+                    "summary": "String",
                     "tension": 0.0,
                     "energy": 0.0
                   }
@@ -177,6 +207,6 @@ Downstream agents consume this standardized format. The Story Analyst does not e
 ---
 
 ## Design Constraints
-* **Narrative Fidelity:** Must represent only facts present in or logically inferred from the source text. No embellishment or visual hallucination.
+* **Narrative Fidelity:** Summaries must be faithful translations of child nodes. No external facts or stylistic formatting.
 * **Separation of Concerns:** Must not attempt to choose shot framing (close-up/wide-shot), lens specifications, lighting levels, or edit transitions.
 * **Schema Conformity:** All outputs must strictly adhere to the defined blueprint structure.

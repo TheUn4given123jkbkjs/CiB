@@ -1,1 +1,1 @@
-"# CiB" 
+# CiB (Cinematic Intelligence Builder)
