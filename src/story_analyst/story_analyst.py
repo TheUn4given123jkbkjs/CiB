@@ -53,6 +53,23 @@ class StoryAnalyst:
         asset_graph = self.asset_engine.build_asset_graph(tree)
         presence_matrix = self.asset_engine.compile_presence_matrix(tree)
 
+        # Fallback: if relationship_graph nodes are empty, populate them from presence_matrix characters
+        if not relationship_graph.get("nodes") and presence_matrix:
+            unique_chars = set()
+            for entry in presence_matrix:
+                unique_chars.update(entry.get("characters_present", []))
+            
+            nodes = []
+            for char_id in sorted(list(unique_chars)):
+                name = char_id.replace("char_", "").replace("_", " ").title()
+                nodes.append({
+                    "id": char_id,
+                    "name": name,
+                    "archetype": "Character",
+                    "traits": []
+                })
+            relationship_graph["nodes"] = nodes
+
         # 4. Calculate compression tiers, pruning rules, and tension/energy curves
         # This calculates tension/energy first so they are present in the Story Tree
         compression_model = self.compression_engine.compile_compression_model(tree, causality_graph)
@@ -60,7 +77,7 @@ class StoryAnalyst:
         # 5. Perform bottom-up recursive summarization
         self.summarizer.summarize_tree_recursive(tree)
         director_view = self.summarizer.compile_director_view(
-            tree, causality_graph, relationship_graph, asset_graph
+            tree, causality_graph, relationship_graph, asset_graph, presence_matrix
         )
 
         # 6. Extract stable visual profiles and mood maps

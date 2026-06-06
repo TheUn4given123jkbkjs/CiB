@@ -106,4 +106,61 @@ Specifically:
 3. Implemented state mutation extraction for assets and chronological propagation using Python logic.
 4. Added core entity guardrails to retain proper names in summaries, improved cinematic hook selection (prioritizing mystery/revelation/threat), and excluded cinematic/camera setup from visual invariants.
 5. Added derived_from fields in the Story Tree to track summary provenance/lineage.
+
+---
+
+## Decision 008
+
+Title:
+Director's View Fallback Extractor & Environment Configuration
+
+Status:
+Accepted
+
+Date:
+06/06/2026
+
+Description:
+Implemented a robust fallback system in the Recursive Summarization Engine to guarantee completeness of the `director_view` (specifically `main_characters`, `main_conflicts`, and `top_hooks`). If the LLM returns empty arrays, Python-side fallbacks programmatically extract characters from the relationship graph, select trailer hooks from the highest-tension beats, and identify conflicts from the highest-tension scenes. Additionally, integrated parent directory scanning for `.env` to automatically configure `GEMINI_API_KEY` for local run simplicity.
+
+---
+
+## Decision 009
+
+Title:
+Separation of Character Extraction and Relationship Inference in Graph Synthesis
+
+Status:
+Accepted
+
+Date:
+06/06/2026
+
+Description:
+To resolve prompt weight overload and improve reliability when generating the character relationship graph (avoiding empty responses under 429 quota limits or heavy token contexts), the synthesis process was split into a 2-Phase pipeline:
+1. Phase 1 (Character Extraction): Queries LLM solely to extract character nodes (ID, name, archetype, traits).
+2. Phase 2 (Relationship Inference): Given the extracted character nodes and script beats, queries LLM to trace stance and relationship evolution over the timeline.
+Additionally, added a coordinator-level fallback in `StoryAnalyst.analyze`: if the character nodes list remains empty, it dynamically reconstructs default nodes using character IDs present in the `presence_matrix`.
+
+---
+
+## Decision 010
+
+Title:
+Dynamic Range Classification for Narrative Importance Tiers
+
+Status:
+Accepted
+
+Date:
+06/06/2026
+
+Description:
+To resolve issues where all scenes cluster into a single importance tier (such as tier_1_core_path) due to uniform or high fallback tension values, the categorization logic in `compression.py` was refactored:
+1. Removed absolute hardcoded score thresholds (0.7 and 0.4).
+2. Implemented dynamic range-based relative thresholding using $R = \text{max\_peak} - \text{min\_peak}$ across the story.
+3. Implemented a fallback distribution mechanism: if any of the three tiers is completely empty (under stories containing >= 3 scenes), it automatically sorts the scenes by tension and partitions them into three equal-ish slices. This guarantees balanced representations in Core Path, Subplots, and Atmospheric tiers.
+
+
+
 

@@ -119,15 +119,21 @@ class CompressionEngine:
 
         for scene in scenes:
             score = scores_by_id.get(scene.id, {})
-            tension_peak = score.get("tension_peak", 0.5)
+            
+            # Dynamic fallback: if LLM fails, use max heuristic tension as baseline
+            if scene.beats:
+                max_h_tension = max(b["tension"] for b in scene.beats)
+                default_peak = min(1.0, max_h_tension + 0.2)
+            else:
+                max_h_tension = 0
+                default_peak = 0.5
+
+            tension_peak = score.get("tension_peak", default_peak)
             energy_multiplier = score.get("energy_multiplier", 1.0)
             
             scene.tension_peak = tension_peak
             
             if scene.beats:
-                # Find maximum heuristic tension
-                max_h_tension = max(b["tension"] for b in scene.beats)
-                
                 for beat in scene.beats:
                     # Scale tension relative to the peak tension of the scene
                     if max_h_tension > 0:
@@ -159,29 +165,55 @@ class CompressionEngine:
         
         scene_ids = [s.id for s in scenes]
         
-        # Categorize scenes into tiers (mock classification based on list order or peak tension)
+        # Categorize scenes into tiers dynamically based on range classification
         tier_1 = []
         tier_2 = []
         tier_3 = []
         
-        # Let's categorize dynamically based on tension peak
-        for scene in scenes:
-            if scene.tension_peak >= 0.7:
-                tier_1.append(scene.id)
-            elif scene.tension_peak >= 0.4:
-                tier_2.append(scene.id)
+        if scenes:
+            peaks = [s.tension_peak for s in scenes]
+            min_peak = min(peaks)
+            max_peak = max(peaks)
+            r = max_peak - min_peak
+            
+            # If all scenes have the exact same tension, or if we have very small variation
+            if r < 0.01:
+                # Distribute evenly index-based
+                for idx, scene in enumerate(scenes):
+                    if idx % 3 == 0:
+                        tier_1.append(scene.id)
+                    elif idx % 3 == 1:
+                        tier_2.append(scene.id)
+                    else:
+                        tier_3.append(scene.id)
             else:
-                tier_3.append(scene.id)
+                # Distribute dynamically based on range
+                for scene in scenes:
+                    score = scene.tension_peak
+                    # Top 40% range: Core Path
+                    if score >= min_peak + 0.6 * r:
+                        tier_1.append(scene.id)
+                    # Mid 30% range: Subplots
+                    elif score >= min_peak + 0.3 * r:
+                        tier_2.append(scene.id)
+                    # Bottom 30% range: Atmospheric
+                    else:
+                        tier_3.append(scene.id)
+                        
+            # Secondary check: if any of the tiers remains completely empty,
+            # we do a soft rebalancing to ensure we distribute them across tiers
+            # (only if we have at least 3 scenes to distribute)
+            if len(scenes) >= 3 and (not tier_1 or not tier_2 or not tier_3):
+                # Sort scenes by tension peak descending
+                sorted_scenes = sorted(scenes, key=lambda s: s.tension_peak, reverse=True)
+                n = len(sorted_scenes)
+                # Split into 3 chunks
+                chunk_1 = n // 3
+                chunk_2 = (n - chunk_1) // 2
                 
-        # If all scenes fell into one tier, fallback to index-based distribution
-        if not tier_1 and not tier_2:
-            for idx, scene_id in enumerate(scene_ids):
-                if idx % 3 == 0:
-                    tier_1.append(scene_id)
-                elif idx % 3 == 1:
-                    tier_2.append(scene_id)
-                else:
-                    tier_3.append(scene_id)
+                tier_1 = [s.id for s in sorted_scenes[:chunk_1]]
+                tier_2 = [s.id for s in sorted_scenes[chunk_1:chunk_1 + chunk_2]]
+                tier_3 = [s.id for s in sorted_scenes[chunk_1 + chunk_2:]]
                     
         # Generate pruning rules based on causality edges
         pruning_rules = []

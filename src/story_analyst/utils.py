@@ -67,7 +67,7 @@ def parse_json_response(text: str) -> Any:
 
 def call_llm(prompt: str, system_instruction: Optional[str] = None, json_mode: bool = False) -> str:
     """
-    Sends a generation request to the gemini-3-flash-preview model.
+    Sends a generation request to the gemini-2.5-flash model.
     Supports JSON output constraints via json_mode.
     """
     global _api_configured
@@ -76,7 +76,31 @@ def call_llm(prompt: str, system_instruction: Optional[str] = None, json_mode: b
         if env_key:
             configure_api(env_key)
         else:
-            return "{}" if json_mode else "Fallback LLM output."
+            # Try finding in .env file in parent directories
+            current_dir = os.path.dirname(os.path.abspath(__file__))
+            for _ in range(5):
+                env_path = os.path.join(current_dir, ".env")
+                if os.path.exists(env_path):
+                    try:
+                        with open(env_path, "r", encoding="utf-8") as f:
+                            for line in f:
+                                line = line.strip()
+                                if line and not line.startswith("#") and "=" in line:
+                                    k, v = line.split("=", 1)
+                                    if k.strip() == "GEMINI_API_KEY":
+                                        configure_api(v.strip().strip("'\""))
+                                        break
+                    except Exception:
+                        pass
+                    if _api_configured:
+                        break
+                parent = os.path.dirname(current_dir)
+                if parent == current_dir:
+                    break
+                current_dir = parent
+
+    if not _api_configured:
+        return "{}" if json_mode else "Fallback LLM output."
 
     generation_config = {}
     if json_mode:

@@ -33,7 +33,7 @@ class Director:
         """
         root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         inputs_dir = os.path.join(root_dir, "inputs")
-        output_dir = os.path.join(root_dir, "output")
+        output_dir = os.path.join(root_dir, "outputs")
 
         # Create directories if they do not exist
         os.makedirs(inputs_dir, exist_ok=True)

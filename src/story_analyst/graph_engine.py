@@ -82,21 +82,38 @@ class GraphSynthesisEngine:
     def synthesize_relationship_graph(self, tree: StoryNode) -> Dict[str, Any]:
         """
         Tracks dynamic changes in character relationships (alliances, power levels) over time.
+        Splits the extraction into two phases:
+        1. Extract character nodes
+        2. Infer relationship evolution edges between the nodes
         """
         beats = self._collect_all_beats(tree)
         beat_data = [{"id": b["id"], "description": b["description"]} for b in beats]
         
+        # Phase 1: Extract Character Nodes
+        nodes = self._extract_characters(beat_data)
+        
+        # Phase 2: Infer Relationships Edges
+        edges = self._infer_relationships(beat_data, nodes)
+        
+        return {
+            "nodes": nodes,
+            "edges": edges
+        }
+
+    def _extract_characters(self, beat_data: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Phase 1: Extract character entities, archetypes, and traits from story beats."""
         system_instruction = (
-            "You are a script analysis engine. Identify characters and extract their relationship networks "
-            "and relationship evolution over time from the beats. Return ONLY a valid JSON object matching the requested schema."
+            "You are a script analysis engine. Identify all characters mentioned in the story beats. "
+            "Return ONLY a valid JSON object matching the requested schema."
         )
         
         prompt = f"""
         Extract all characters mentioned in these story beats.
-        For each character, identify a short lowercase ID (e.g. 'char_john_doe'), their name, archetype, and key traits.
-        
-        Track relationship evolution (changes in alliances, stance type, emotional valence (-1.0 to 1.0), and power balance (-1.0 to 1.0) over the timeline.
-        Only add evolution entries for beats where a change actually occurs.
+        For each character, identify:
+        1. A unique short lowercase ID starting with 'char_' (e.g. 'char_ly_van_tieu').
+        2. Their full proper name.
+        3. Their archetype in the story (e.g., Protagonist, Antagonist, Mentor, Supporting).
+        4. A list of key traits (personality or role-based) shown in these beats.
         
         Story Beats:
         {json.dumps(beat_data, ensure_ascii=False, indent=2)}
@@ -105,7 +122,46 @@ class GraphSynthesisEngine:
         {{
           "nodes": [
             {{ "id": "char_lowercase_id", "name": "Character Name", "archetype": "archetype description", "traits": ["trait1", "trait2"] }}
-          ],
+          ]
+        }}
+        """
+        
+        response_json = call_llm(prompt, system_instruction=system_instruction, json_mode=True)
+        try:
+            data = parse_json_response(response_json)
+            return data.get("nodes", [])
+        except Exception as e:
+            print(f"[Extract Characters Fallback] Error: {e}", flush=True)
+            return []
+
+    def _infer_relationships(
+        self, beat_data: List[Dict[str, Any]], nodes: List[Dict[str, Any]]
+    ) -> List[Dict[str, Any]]:
+        """Phase 2: Infer dynamic relationship changes and evolution between the characters."""
+        if not nodes:
+            return []
+            
+        system_instruction = (
+            "You are a script analysis engine. Analyze relationship evolution between characters. "
+            "Return ONLY a valid JSON object matching the requested schema."
+        )
+        
+        char_list = [{"id": n["id"], "name": n["name"]} for n in nodes]
+        
+        prompt = f"""
+        Analyze dynamic relationship changes (alliances, stance, power balance) between the identified characters over the timeline of beats.
+        For each active relationship pair:
+        - Track changes in alliances, stance type (e.g. adversary, master_student, ally), emotional valence (-1.0 to 1.0), and power balance (-1.0 to 1.0).
+        - Only add evolution entries for beat IDs where a relationship change actually occurs.
+        
+        Characters:
+        {json.dumps(char_list, ensure_ascii=False, indent=2)}
+        
+        Story Beats:
+        {json.dumps(beat_data, ensure_ascii=False, indent=2)}
+        
+        Return a JSON object with this structure:
+        {{
           "edges": [
             {{
               "source": "char_lowercase_id",
@@ -113,7 +169,7 @@ class GraphSynthesisEngine:
               "evolution": [
                 {{
                   "beat_id": "beat_id",
-                  "type": "relationship type description (e.g. adversary, master_student)",
+                  "type": "relationship type description",
                   "valence": 0.0,
                   "power_balance": 0.0
                 }}
@@ -124,11 +180,9 @@ class GraphSynthesisEngine:
         """
         
         response_json = call_llm(prompt, system_instruction=system_instruction, json_mode=True)
-        
         try:
             data = parse_json_response(response_json)
+            return data.get("edges", [])
         except Exception as e:
-            print(f"[Relationships Fallback] Error: {e}", flush=True)
-            data = {"nodes": [], "edges": []}
-            
-        return data
+            print(f"[Infer Relationships Fallback] Error: {e}", flush=True)
+            return []

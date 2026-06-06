@@ -18,6 +18,9 @@ Completed:
 * Story Analyst Recursive Summarization & Director's View Design Finalized
 * Story Analyst Prompt & Data-Flow Optimization Implementation (Complete pipeline integration, two-stage tension/energy scoring, prop state propagation, entity retention guardrails, and provenance lineage)
 * Director Coordinator Implementation (Runs Story Analyst pipeline automatically on `inputs/script.txt` and outputs JSON to `output/story_blueprint.json`)
+* Director's View Prompt & Programmatic Fallback System (Fixed empty main_characters, main_conflicts, and top_hooks fields with strict LLM instructions and Python-side fallback extractors; added `.env` autoloader for GEMINI_API_KEY; added >= 0.6 importance score threshold filter for main_characters; integrated programmatic centrality/presence evaluation score mechanism for characters; implemented dynamic tension peak estimation fallback for 429 quota recovery; implemented 2-Phase pipeline split for Character Extraction & Relationship Inference in graph_engine.py; implemented presence-matrix fallback nodes populating in story_analyst.py; implemented dynamic range classification and fallback rebalancing for narrative importance tiers in compression.py)
+* Quality Analyzer Notebook Correction (Corrected the `compression_score` formula in `story_analyst_blueprint_analyzer.ipynb` to scale by multiplying by 10, resolving the issue where the score was capped at 1.0 and dragged the overall blueprint score down)
+
 
 In Progress:
 
