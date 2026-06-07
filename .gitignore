@@ -11,3 +11,5 @@ ENV/
 output/
 inputs/
 story_blueprint.json
+scratch/
+

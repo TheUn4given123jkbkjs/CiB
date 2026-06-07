@@ -161,6 +161,63 @@ To resolve issues where all scenes cluster into a single importance tier (such a
 2. Implemented dynamic range-based relative thresholding using $R = \text{max\_peak} - \text{min\_peak}$ across the story.
 3. Implemented a fallback distribution mechanism: if any of the three tiers is completely empty (under stories containing >= 3 scenes), it automatically sorts the scenes by tension and partitions them into three equal-ish slices. This guarantees balanced representations in Core Path, Subplots, and Atmospheric tiers.
 
+---
 
+## Decision 011
 
-
+Title:
+Sprint 1 Foundation Stabilization - Story Analyst Refactor
+
+Status:
+Accepted
+
+Date:
+07/06/2026
+
+Description:
+Refactored the Story Analyst pipeline to stabilize performance, improve token efficiency, and align with CodeWiki's hierarchical structure analysis patterns. Specifically:
+1. Two-Stage Parser: Separated `parser.py` into a Scene Discovery stage (structural mapping and confidence score output) and a Beat Extraction stage (local verbatim beat extraction).
+2. Summarizer Redesign: Batched all beat and scene summaries of a scene in a single LLM call per scene (saving over 80% of API calls) with token-budget subscene partitioning (6,000 token limit).
+3. Independent Merge Engine: Created `merge_engine.py` to de-duplicate character, location, and prop IDs, output an Entity Registry catalog, and unify all IDs in the tree and graphs (with source_chunk lineage mapping).
+4. Hybrid Causality: Redesigned the graph engine to build local causality (beat-to-beat within a scene) and global causality (scene-to-scene via scene summaries), using empty lists for fallbacks instead of fake chronological chains.
+
+---
+
+## Decision 012
+
+Title:
+Story Analyst Sprint 2 - Semantic Quality & Registry Centricity
+
+Status:
+Accepted
+
+Date:
+07/06/2026
+
+Description:
+Refactored the Story Analyst pipeline to enhance semantic data structures, establish a Single Source of Truth (SSOT) for narrative entities, and enforce architectural quality metrics:
+1. Entity Registry Centricity: Shifted the Entity Registry discovery phase to the absolute front of the pipeline (immediately following initial parsing). This registry acts as the SSOT. Subsequent stages (graphs, asset tracker, summarizer, visual compiler) resolve raw name extractions to canonical Registry IDs using the generated alias map.
+2. Entity Lineage: Enriched the Entity Registry to explicitly track entity name variants and aliases (e.g. Lý Vân Tiêu, Lý thiếu gia, hắn) as a lineage lineage/alias array, preparing the system for cross-chapter memory and retrieval.
+3. Temporal Relationship Timelines with Confidence: Transformed flat character relationship edges into chronological event timelines that track power balance, emotional valence, and extraction confidence (0.0 to 1.0) per stance change event.
+4. Split Asset Histories: Refactored flat prop states in the asset graph into three distinct, chronologically-tracked timelines within each prop node: ownership_history, location_history, and state_history.
+5. Batched Mood & Theme Analysis: Replaced static/mock atmospheric mapping with dynamic LLM inference by batching scene summaries into a single call, preventing quota limits and scaling issues.
+6. Architecture-Driven Quality KPIs: Replaced arbitrary numeric metrics with concrete structural integrity checks: zero duplicate entity IDs, zero orphan graph edges, registry coverage > 90%, asset continuity consistency > 95%, and relationship timeline validity > 95%.
+
+---
+
+## Decision 013
+
+Title:
+Graceful Partial Blueprint Return on Quota Exhaustion
+
+Status:
+Accepted
+
+Date:
+07/06/2026
+
+Description:
+Implemented a resilience mechanism to handle persistent Gemini API 429 quota exhaustion errors during sequential pipeline runs under the Free Tier rate limits:
+1. Custom Quota Exception: Added `QuotaLimitReachedException` to `utils.py`, raised only after the retry-and-backoff mechanism (max 3 retries with 12s sleep) is fully exhausted.
+2. Graceful Catch & Early Return: Wrapped the 10 stages of the pipeline in `story_analyst.py` with a `try...except QuotaLimitReachedException` block. 
+3. Default Object Initialization: Pre-initialized all output variables with empty default configurations. If quota exhaustion occurs at any point, the pipeline terminates further LLM requests (conserving key quotas) and immediately returns the assembled blueprint containing whatever partial details were successfully generated up to that stage.

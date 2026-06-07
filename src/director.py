@@ -66,7 +66,9 @@ class Director:
                     script_text = f.read()
 
         print(f"[Director] Initiating Story Analyst understanding pipeline...")
-        blueprint = self.story_analyst.analyze(script_text)
+        # Thiết lập chế độ nén: "NORMAL" (mặc định), "COMPACT" (rút gọn tối đa), hoặc "FULL" (đầy đủ)
+        director_brief = {"blueprint_mode": "NORMAL"}
+        blueprint = self.story_analyst.analyze(script_text, director_brief=director_brief)
 
         # Output the JSON to output/story_blueprint.json
         with open(output_path, "w", encoding="utf-8") as out:

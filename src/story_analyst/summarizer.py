@@ -13,6 +13,7 @@ class RecursiveSummarizationEngine:
     Stage 4: Recursive Bottom-Up Summarization.
     Traverses the StoryTree from leaf nodes (beats) to the root story,
     synthesizing node summaries and compiling the Director's View.
+    Uses token-budget batching (6000 tokens) at scene level.
     """
     def __init__(self):
         pass
@@ -33,15 +34,7 @@ class RecursiveSummarizationEngine:
         field of each node with synthesized semantic summaries, and tracks the derived_from lineage.
         """
         if node.type == "scene":
-            beat_contents = []
-            node.derived_from = []
-            for beat in node.beats:
-                if not beat.get("summary"):
-                    beat["summary"] = self._synthesize_beat(beat["description"])
-                beat_contents.append(beat["summary"])
-                node.derived_from.append(beat["id"])
-            
-            node.summary = self._synthesize(beat_contents, "scene", node.title)
+            self._summarize_scene_batched(node)
             return node.summary
 
         child_summaries = []
@@ -53,6 +46,94 @@ class RecursiveSummarizationEngine:
 
         node.summary = self._synthesize(child_summaries, node.type, node.title)
         return node.summary
+
+    def _summarize_scene_batched(self, node: StoryNode) -> None:
+        """
+        Summarizes all beats of a scene and the scene itself in a single LLM call per batch,
+        respecting a token/character context budget (~6,000 tokens or 24,000 characters).
+        """
+        if not node.beats:
+            node.summary = f"Phân cảnh: {node.title} không có diễn biến."
+            node.derived_from = []
+            return
+
+        beats_to_process = node.beats
+        # Target context budget of 6000 tokens (approx 24,000 characters of description)
+        target_char_budget = 24000
+        
+        # Partition beats into subscene batches if they exceed the budget
+        batches = []
+        current_batch = []
+        current_len = 0
+        for beat in beats_to_process:
+            beat_len = len(beat.get("description", ""))
+            if current_len + beat_len > target_char_budget and current_batch:
+                batches.append(current_batch)
+                current_batch = []
+                current_len = 0
+            current_batch.append(beat)
+            current_len += beat_len
+        if current_batch:
+            batches.append(current_batch)
+
+        node.derived_from = [b["id"] for b in node.beats]
+        
+        subscene_summaries = []
+        for batch_idx, batch in enumerate(batches):
+            sub_title = f"{node.title} (Phần {batch_idx + 1})" if len(batches) > 1 else node.title
+            
+            # Format beats for prompt
+            beats_input = [{"id": b["id"], "description": b["description"]} for b in batch]
+            
+            system_instruction = (
+                "You are a script editor and narrative summarization engine. "
+                "For the provided scene and its individual beats, synthesize a concise summary for each beat, "
+                "and then compile a synthesized summary for the scene. "
+                "CRITICAL RULE: You MUST retain all core entities (unique proper names of characters, locations, and specific items/weapons/relics). Do not generalize them. "
+                "Return ONLY a valid JSON object matching the requested schema."
+            )
+            
+            prompt = f"""
+            Synthesize a concise summary (1 sentence, in Vietnamese, keeping all proper names) for each beat in the scene, and then compile an overall scene summary (1-2 sentences, in Vietnamese, keeping all proper names).
+            
+            Scene Title: {sub_title}
+            Beats:
+            {json.dumps(beats_input, ensure_ascii=False, indent=2)}
+            
+            Return a JSON object with this structure:
+            {{
+              "beat_summaries": [
+                {{ "id": "beat_id", "summary": "tóm tắt beat..." }}
+              ],
+              "scene_summary": "tóm tắt phân cảnh..."
+            }}
+            """
+            
+            response_json = call_llm(prompt, system_instruction=system_instruction, json_mode=True)
+            
+            try:
+                data = parse_json_response(response_json)
+                # Apply beat summaries
+                beat_sums = {item["id"]: item["summary"] for item in data.get("beat_summaries", []) if "id" in item and "summary" in item}
+                for b in batch:
+                    b["summary"] = beat_sums.get(b["id"], b["description"][:45] + "...")
+                
+                subscene_summary = data.get("scene_summary", f"Phân cảnh: {sub_title}.")
+                subscene_summaries.append(subscene_summary)
+            except Exception as e:
+                print(f"[Summarizer Scene Fallback] Error parsing LLM response for {sub_title}: {e}", flush=True)
+                # Fallback: summarize individually
+                for b in batch:
+                    b["summary"] = self._synthesize_beat(b["description"])
+                subscene_summary = f"Phân cảnh: {sub_title}. Diễn biến chính: " + " -> ".join([b["summary"] for b in batch[:2]]) + "..."
+                subscene_summaries.append(subscene_summary)
+
+        # Combine subscenes
+        if len(subscene_summaries) == 1:
+            node.summary = subscene_summaries[0]
+        else:
+            # Synthesize subscene summaries into the overall scene summary
+            node.summary = self._synthesize(subscene_summaries, "scene", node.title)
 
     def _collect_scenes(self, node: StoryNode) -> List[StoryNode]:
         """Helper to collect all scene nodes from the tree."""
@@ -324,7 +405,7 @@ class RecursiveSummarizationEngine:
         """Lightweight synthesis of raw beat description into a concise beat summary using LLM."""
         system_instruction = (
             "Bạn là một trợ lý tóm tắt kịch bản cực ngắn. "
-            "CRITICAL RULE: You MUST retain all core entities (unique proper names of characters, locations, and specific items/weapons/relics) in the summary. Do not generalize proper nouns into generic terms (e.g., do not rewrite a character's name like 'Arthur' into 'a king/student', 'Camelot' into 'a castle/classroom', or 'Excalibur' into 'a sword/weapon')."
+            "CRITICAL RULE: You MUST retain all core entities (unique proper names of characters, locations, and specific items/weapons/relics) in the summary. Do not generalize proper nouns into generic terms."
         )
         prompt = f"Hãy tóm tắt hành động/lời thoại sau đây thành 1 câu ngắn gọn (bằng Tiếng Việt, giữ nguyên tên riêng):\n{description}"
         result = call_llm(prompt, system_instruction=system_instruction)
@@ -340,7 +421,7 @@ class RecursiveSummarizationEngine:
         combined_text = "\n- ".join(summaries)
         system_instruction = (
             "Bạn là một biên kịch lão luyện tóm tắt cấu trúc cốt truyện. "
-            "CRITICAL RULE: You MUST retain all core entities (unique proper names of characters, locations, and specific items/weapons/relics) in the summary. Do not generalize proper nouns into generic terms (e.g., do not rewrite a character's name like 'Arthur' into 'a king/student', 'Camelot' into 'a castle/classroom', or 'Excalibur' into 'a sword/weapon')."
+            "CRITICAL RULE: You MUST retain all core entities (unique proper names of characters, locations, and specific items/weapons/relics) in the summary. Do not generalize proper nouns into generic terms."
         )
         prompt = f"Hãy tóm tắt phần '{level}' có tên '{title}' dựa trên danh sách tóm tắt con sau đây (bằng Tiếng Việt, ngắn gọn 1-2 câu, giữ nguyên tên riêng):\n- {combined_text}"
         

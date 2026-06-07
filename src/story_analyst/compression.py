@@ -100,7 +100,7 @@ class CompressionEngine:
         Return a JSON object with this structure:
         {{
           "scene_scores": [
-            {{ "id": "scene_id", "tension_peak": 0.8, "energy_multiplier": 1.2 }}
+            {{ "id": "scene_id", "tension_peak": float, "energy_multiplier": float }}
           ]
         }}
         """

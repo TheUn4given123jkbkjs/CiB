@@ -62,8 +62,14 @@ class StoryNode:
         }
         self.beats.append(beat)
 
-    def to_dict(self) -> Dict[str, Any]:
-        """Serializes the node and its descendants into the Semantic JSON blueprint format."""
+    def to_dict(self, mode: str = "NORMAL", critical_beat_ids: Optional[set] = None) -> Dict[str, Any]:
+        """
+        Serializes the node and its descendants into the Semantic JSON blueprint format.
+        Supports FULL, NORMAL, and COMPACT compression modes.
+        """
+        if critical_beat_ids is None:
+            critical_beat_ids = set()
+
         data = {
             "id": self.id,
             "type": self.type,
@@ -73,10 +79,30 @@ class StoryNode:
         }
 
         if self.type == "scene":
-            data["beats"] = self.beats
+            # Apply mode-based pruning to beats array
+            if mode == "FULL":
+                data["beats"] = self.beats
+            elif mode == "NORMAL":
+                # Strip beat.summary
+                pruned_beats = []
+                for b in self.beats:
+                    b_copy = dict(b)
+                    b_copy.pop("summary", None)
+                    pruned_beats.append(b_copy)
+                data["beats"] = pruned_beats
+            elif mode == "COMPACT":
+                # Only keep critical beats
+                pruned_beats = []
+                for b in self.beats:
+                    if b.get("id") in critical_beat_ids:
+                        b_copy = dict(b)
+                        b_copy.pop("summary", None)  # Also strip summary in COMPACT
+                        pruned_beats.append(b_copy)
+                data["beats"] = pruned_beats
+
             data["tension_peak"] = self.tension_peak
             data["primary_location"] = self.primary_location
         else:
-            data["children"] = [child.to_dict() for child in self.children]
+            data["children"] = [child.to_dict(mode=mode, critical_beat_ids=critical_beat_ids) for child in self.children]
 
         return data
