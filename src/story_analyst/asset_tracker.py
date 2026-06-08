@@ -40,7 +40,7 @@ class AssetPresenceEngine:
         return scenes
 
     def build_asset_graph(
-        self, tree: StoryNode, entity_registry: Dict[str, Any], alias_map: Dict[str, str]
+        self, tree: StoryNode, entity_registry: Dict[str, Any], alias_map: Dict[str, str], blueprint_mode: str = "NORMAL"
     ) -> Dict[str, Any]:
         """
         Extracts prop mutations from LLM using registry catalog, and propagates
@@ -123,6 +123,7 @@ class AssetPresenceEngine:
                 mutation_map[(bid, pid)] = mut
                 
         # Propagate states chronologically and split histories
+        beat_desc_map = {b["id"]: b["description"] for b in beats}
         for prop in props_list:
             pid = prop["id"]
             
@@ -157,15 +158,27 @@ class AssetPresenceEngine:
                     else:
                         new_loc = me.resolve_entity(alias_map, new_loc, "loc")
 
-                # Record split history changes
+                # Record split history changes with verbatim evidence quotes (FULL mode only)
                 if new_owner != last_owner:
-                    own_history.append({"beat_id": bid, "owner": new_owner})
+                    entry = {"beat_id": bid, "owner": new_owner}
+                    if blueprint_mode == "FULL":
+                        quote = beat_desc_map.get(bid, "No description found.")
+                        entry["evidence"] = [{"beat_id": bid, "quote": quote}]
+                    own_history.append(entry)
                     last_owner = new_owner
                 if new_loc != last_loc:
-                    loc_history.append({"beat_id": bid, "location": new_loc})
+                    entry = {"beat_id": bid, "location": new_loc}
+                    if blueprint_mode == "FULL":
+                        quote = beat_desc_map.get(bid, "No description found.")
+                        entry["evidence"] = [{"beat_id": bid, "quote": quote}]
+                    loc_history.append(entry)
                     last_loc = new_loc
                 if new_state != last_state:
-                    st_history.append({"beat_id": bid, "state": new_state})
+                    entry = {"beat_id": bid, "state": new_state}
+                    if blueprint_mode == "FULL":
+                        quote = beat_desc_map.get(bid, "No description found.")
+                        entry["evidence"] = [{"beat_id": bid, "quote": quote}]
+                    st_history.append(entry)
                     last_state = new_state
                     
             prop["ownership_history"] = own_history

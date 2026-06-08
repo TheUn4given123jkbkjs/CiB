@@ -1,4 +1,4 @@
-from typing import Dict, List, Any
+from typing import Dict, List, Any, Optional
 import json
 
 try:
@@ -151,7 +151,8 @@ class RecursiveSummarizationEngine:
         causality: Dict[str, Any],
         relationship_graph: Dict[str, Any],
         asset_graph: Dict[str, Any],
-        presence_matrix: List[Dict[str, Any]] = None
+        presence_matrix: List[Dict[str, Any]] = None,
+        compression_model: Dict[str, Any] = None
     ) -> Dict[str, Any]:
         """
         Synthesizes the global story summary and compiles the Director's View block,
@@ -223,7 +224,7 @@ class RecursiveSummarizationEngine:
         }}
         """
         
-        response_json = call_llm(prompt, system_instruction=system_instruction, json_mode=True)
+        response_json = call_llm(prompt, system_instruction=system_instruction, json_mode=True, use_complex=True)
         
         try:
             data = parse_json_response(response_json)
@@ -235,7 +236,7 @@ class RecursiveSummarizationEngine:
         # Robust Programmatic Character Importance Evaluation
         # ----------------------------------------------------
         evaluated_scores = self._evaluate_character_importance(
-            relationship_graph, presence_matrix, scenes, beats
+            relationship_graph, presence_matrix, scenes, beats, compression_model
         )
 
         main_chars = data.get("main_characters", [])
@@ -306,7 +307,30 @@ class RecursiveSummarizationEngine:
                     "hook_type": h_type,
                     "importance": round(b.get("tension", 0.8), 2)
                 })
-        data["top_hooks"] = top_hooks
+        
+        # Enrich top_hooks with evidence verbatim quote
+        beat_desc_map = {b["id"]: b["description"] for b in beats}
+        reconstructed_hooks = []
+        for hook in top_hooks:
+            bid = hook.get("beat_id")
+            
+            # Robustly normalize beat_id prefix for lookup in case LLM stripped/duplicated it
+            lookup_id = bid
+            if lookup_id:
+                clean_id = str(lookup_id).replace("beat_", "")
+                rebuilt_id = f"beat_{clean_id}"
+                if rebuilt_id in beat_desc_map:
+                    lookup_id = rebuilt_id
+                    
+            quote = beat_desc_map.get(lookup_id, hook.get("summary", "No description found."))
+            hook["evidence"] = [
+                {
+                    "beat_id": lookup_id if lookup_id else bid,
+                    "quote": quote
+                }
+            ]
+            reconstructed_hooks.append(hook)
+        data["top_hooks"] = reconstructed_hooks
 
         # 3. Fallback for main_conflicts
         main_conflicts = data.get("main_conflicts", [])
@@ -319,20 +343,55 @@ class RecursiveSummarizationEngine:
                 "description": f"The main narrative clash and power struggle developing in the story, peaking at scene '{highest_tension_scene.title if highest_tension_scene else 'Main Clash'}'.",
                 "resolution_point": res_point
             })
-        data["main_conflicts"] = main_conflicts
+            
+        # Enrich main_conflicts with evidence beat & quote
+        scenes_map = {s.id: s for s in scenes}
+        reconstructed_conflicts = []
+        for conf in main_conflicts:
+            res_point = conf.get("resolution_point")
+            scene = scenes_map.get(res_point)
+            evidence_beat_id = ""
+            evidence_quote = "No explicit resolution scene found."
+            if scene:
+                if scene.beats:
+                    peak_beat = max(scene.beats, key=lambda b: b.get("tension", 0.0))
+                    evidence_beat_id = peak_beat["id"]
+                    evidence_quote = peak_beat["description"]
+                else:
+                    evidence_beat_id = scene.id
+                    evidence_quote = scene.summary or scene.title
+            
+            conf["evidence_beat_id"] = evidence_beat_id
+            conf["evidence_quote"] = evidence_quote
+            reconstructed_conflicts.append(conf)
+        data["main_conflicts"] = reconstructed_conflicts
 
         # Complete the final director_view dict
+        critical_path_summary = []
+        for s in scenes:
+            climax_beat_id = s.beats[0]["id"] if s.beats else s.id
+            climax_beat_desc = s.beats[0]["description"] if s.beats else (s.summary or s.title)
+            if s.beats:
+                peak_beat = max(s.beats, key=lambda b: b.get("tension", 0.0))
+                climax_beat_id = peak_beat["id"]
+                climax_beat_desc = peak_beat["description"]
+            
+            critical_path_summary.append({
+                "scene_id": s.id,
+                "summary": s.summary,
+                "evidence": [
+                    {
+                        "beat_id": climax_beat_id,
+                        "quote": climax_beat_desc
+                    }
+                ]
+            })
+
         director_view = {
             "story_summary": root.summary,
             "main_characters": data.get("main_characters", []),
             "main_conflicts": data.get("main_conflicts", []),
-            "critical_path_summary": [
-                {
-                    "scene_id": s.id,
-                    "summary": s.summary
-                }
-                for s in scenes
-            ],
+            "critical_path_summary": critical_path_summary,
             "top_hooks": data.get("top_hooks", [])
         }
         return director_view
@@ -342,11 +401,13 @@ class RecursiveSummarizationEngine:
         relationship_graph: Dict[str, Any],
         presence_matrix: List[Dict[str, Any]],
         scenes: List[StoryNode],
-        beats: List[Dict[str, Any]]
+        beats: List[Dict[str, Any]],
+        compression_model: Optional[Dict[str, Any]] = None
     ) -> Dict[str, float]:
         """
         Evaluation mechanism: Programmatically calculates the importance score (0.0 to 1.0)
-        for each character based on scene presence, relationship degree centrality, and beat activity.
+        for each character using the locked mathematical formula:
+        importance_score = 0.4 * norm_app_freq + 0.4 * norm_rel_deg + 0.2 * critical_path_presence
         """
         importance_scores = {}
         nodes = relationship_graph.get("nodes", [])
@@ -356,15 +417,18 @@ class RecursiveSummarizationEngine:
             return {}
             
         total_scenes = len(scenes) if scenes else 1
+        critical_path_scenes = set()
+        if compression_model:
+            critical_path_scenes = set(compression_model.get("importance_tiers", {}).get("tier_1_core_path", []))
         
-        # 1. Calculate Presence Ratio (P)
+        # 1. Calculate appearance counts
         char_presence = {}
         if presence_matrix:
             for entry in presence_matrix:
                 for char_id in entry.get("characters_present", []):
                     char_presence[char_id] = char_presence.get(char_id, 0) + 1
                     
-        # 2. Calculate Relationship Degree Centrality (D)
+        # 2. Calculate relationship degree
         char_degree = {}
         for edge in edges:
             src = edge.get("source")
@@ -374,30 +438,33 @@ class RecursiveSummarizationEngine:
             if tgt:
                 char_degree[tgt] = char_degree.get(tgt, 0) + 1
                 
-        # 3. Calculate Beat Mention Activity (A)
-        char_activity = {}
-        for beat in beats:
-            desc = beat.get("description", "").lower()
-            for node in nodes:
-                name_parts = node.get("name", "").lower().split()
-                # If character name is mentioned in beat description
-                if any(part in desc for part in name_parts if len(part) > 2):
-                    char_activity[node["id"]] = char_activity.get(node["id"], 0) + 1
-
-        max_presence = max(char_presence.values(), default=1)
-        max_degree = max(char_degree.values(), default=1)
-        max_activity = max(char_activity.values(), default=1)
-        
+        max_rel_count = max(char_degree.values(), default=1)
+        if max_rel_count == 0:
+            max_rel_count = 1
+            
         for node in nodes:
             char_id = node["id"]
             
-            p_score = char_presence.get(char_id, 0) / total_scenes
-            d_score = char_degree.get(char_id, 0) / max(1, max_degree)
-            a_score = char_activity.get(char_id, 0) / max(1, max_activity)
+            # Compute normalized appearance frequency
+            presence_count = char_presence.get(char_id, 0)
+            norm_app_freq = presence_count / total_scenes
             
-            # Weighted average: 40% presence, 30% relationship degree, 30% activity
-            score = 0.4 * p_score + 0.3 * d_score + 0.3 * a_score
-            importance_scores[char_id] = round(min(1.0, score), 2)
+            # Compute normalized relationship degree
+            rel_count = char_degree.get(char_id, 0)
+            norm_rel_deg = rel_count / max_rel_count
+            
+            # Compute critical path presence
+            present_scenes = []
+            if presence_matrix:
+                for pm in presence_matrix:
+                    if char_id in pm.get("characters_present", []):
+                        present_scenes.append(pm["scene_id"])
+            present_scenes_set = set(present_scenes)
+            critical_path_presence = 1.0 if (present_scenes_set & critical_path_scenes) else 0.0
+            
+            # Calculate locked importance score
+            importance_score = 0.4 * norm_app_freq + 0.4 * norm_rel_deg + 0.2 * critical_path_presence
+            importance_scores[char_id] = round(importance_score, 2)
             
         return importance_scores
 

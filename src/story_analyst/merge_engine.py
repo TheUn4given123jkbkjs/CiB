@@ -155,6 +155,73 @@ class MergeEngine:
             "alias_map": alias_map
         }
 
+    def extract_story_facts(self, tree: StoryNode) -> List[Dict[str, Any]]:
+        """
+        Extracts key narrative facts (occupations, positions, alliances, key events/milestones)
+        along with their valid_from and valid_to scene/beat ID boundaries from the narrative tree.
+        Runs on Local/Standard model route (Registry/Extraction is Local).
+        """
+        scenes = self._collect_scenes(tree)
+        if not scenes:
+            return []
+            
+        scenes_data = []
+        for s in scenes:
+            scenes_data.append({
+                "id": s.id,
+                "title": s.title,
+                "summary": s.summary or " ".join([b["description"] for b in s.beats])
+            })
+            
+        system_instruction = (
+            "You are a script analysis engine. Extract a Story Fact Registry of key narrative facts. "
+            "A fact is a concrete statement about characters (status, roles, relationships, occupations), locations (state, accessibility), or props. "
+            "For each fact, identify the scene ID or beat ID where it becomes true (valid_from) "
+            "and the scene ID or beat ID where it is no longer true (valid_to). "
+            "If it remains true throughout the narrative, set valid_to to 'present'. "
+            "Return ONLY a valid JSON object matching the requested schema."
+        )
+        
+        prompt = f"""
+        Analyze these scene summaries and extract the key facts about characters, locations, or props:
+        
+        Scenes:
+        {json.dumps(scenes_data, ensure_ascii=False, indent=2)}
+        
+        Return a JSON object with this EXACT structure:
+        {{
+          "facts": [
+            {{
+              "fact": "Factual statement (e.g. 'Lý Vân Tiêu là học sinh')",
+              "valid_from": "scene_id_where_fact_starts_being_true",
+              "valid_to": "scene_id_where_fact_ends_or_present"
+            }}
+          ]
+        }}
+        """
+        
+        response_json = call_llm(prompt, system_instruction=system_instruction, json_mode=True)
+        try:
+            data = parse_json_response(response_json)
+            facts = data.get("facts", [])
+            # Validate structure
+            cleaned_facts = []
+            for item in facts:
+                fact_str = item.get("fact", "").strip()
+                valid_from = item.get("valid_from", "").strip()
+                valid_to = item.get("valid_to", "").strip()
+                
+                if fact_str and valid_from:
+                    cleaned_facts.append({
+                        "fact": fact_str,
+                        "valid_from": valid_from,
+                        "valid_to": valid_to or "present"
+                    })
+            return cleaned_facts
+        except Exception as e:
+            print(f"[Story Fact Registry Failed] Error: {e}", flush=True)
+            return []
+
     def resolve_entity(self, alias_map: Dict[str, str], raw_name: str, prefix_default: str) -> str:
         """Resolves a raw name or string to its canonical registry ID using the alias_map."""
         if not raw_name:

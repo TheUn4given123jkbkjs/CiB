@@ -221,3 +221,87 @@ Implemented a resilience mechanism to handle persistent Gemini API 429 quota exh
 1. Custom Quota Exception: Added `QuotaLimitReachedException` to `utils.py`, raised only after the retry-and-backoff mechanism (max 3 retries with 12s sleep) is fully exhausted.
 2. Graceful Catch & Early Return: Wrapped the 10 stages of the pipeline in `story_analyst.py` with a `try...except QuotaLimitReachedException` block. 
 3. Default Object Initialization: Pre-initialized all output variables with empty default configurations. If quota exhaustion occurs at any point, the pipeline terminates further LLM requests (conserving key quotas) and immediately returns the assembled blueprint containing whatever partial details were successfully generated up to that stage.
+
+---
+
+## Decision 014
+
+Title:
+Story Analyst Sprint 4 - Hybrid Routing, Registry Metadata & Verbatim Evidence
+
+Status:
+Accepted
+
+Date:
+08/06/2026
+
+Description:
+Refactored the Story Analyst pipeline to support hybrid model execution, full local connectivity fallback, verbatim audit trails, and enriched metadata:
+1. Hybrid LLM Routing: Integrated a `use_complex=True` parameter in `call_llm` to route logical reasoning tasks (causality graph, relationship timelines, and director view) to a remote high-reasoning model (Gemini 2.5 Flash), while leaving local token-heavy tasks (beat extraction, summaries) on standard configurations.
+2. Robust Fallback Resilience: Enabled automatic full fallback from Ollama to Gemini API. If the local Ollama server is offline or unreachable, `call_llm` catches the connection/timeout error, logs an warning, and automatically swaps configurations to run via Gemini API, using active rate-limit retry backoffs.
+3. Programmatic Verbatim Evidence Backfilling: Added an audit trail to all semantic outcomes. Instead of letting the LLM output paraphrased quotes, the LLM returns the beat ID, and Python looks up the exact verbatim quote in the story tree to populate `evidence` arrays programmatically. This ensures 100% factual accuracy and saves considerable output tokens.
+4. Statistical Metadata Enrichment: Enriched the Entity Registry characters, locations, and props programmatically in Python at the end of the pipeline with statistical metrics (appearance frequency, first/last seen scene IDs, relationship count, and importance score) using tree traversal.
+5. DAG Causality Validation: Implemented a DFS-based cycle detection pass in graph engine to check and prune any cyclic edges, ensuring the Causality Graph represents a mathematically sound Directed Acyclic Graph (DAG).
+
+---
+
+## Decision 015
+
+Title:
+Sprint 4 Architectural Alignment & Verification (Tiered Evidence, Locked Formula, and Story Fact Registry)
+
+Status:
+Accepted
+
+Date:
+08/06/2026
+
+Description:
+To stabilize the pipeline, limit JSON growth, align hybrid routing, and add continuity verification supports, we implemented:
+1. Tiered Evidence Budget: Restructured evidence backfilling. Tier 1 (hooks, conflicts, relationship timeline, causality edges) is always included. Tier 2 (asset prop histories, verification elements and continuity evidence) is optional and only included when `blueprint_mode == "FULL"`.
+2. Hybrid Routing Matrix: Mapped Parser, Registry Extraction, Asset Mutation, Scene Summarization, Mood/Theme, and Scene-level scoring to the Local model (Ollama). Mapped Director View, Causality Graph, and Character Relationship Graph to the remote Gemini 2.5 Flash API.
+3. Locked Importance Score Formula: Programs and calculations for character importance scores are programmatically locked in both `story_analyst.py` and `summarizer.py` to:
+   0.4 * normalized_appearance_frequency + 0.4 * normalized_relationship_degree + 0.2 * critical_path_presence.
+4. Story Fact Registry: Created a new top-level `story_fact_registry` block in the blueprint JSON, populated by standard/local LLM fact extraction from scene summaries, providing Reflection Agent with historical state boundaries (valid_from, valid_to).
+5. Token Usage Tracking: Integrated automatic Request and Input/Output Token statistics tracking for both Local (Ollama) and Remote (Gemini) calls, appended to the final blueprint's metadata block.
+6. Console Request Log Dashboard: Injected stdout print statements for requests and responses showing time elapsed and tokens, enabling real-time terminal benchmarking.
+7. Timeout and Retry Optimization: Increased the Ollama request timeout to 180s to allow standard hardware to compile output, and configured it to fail immediately upon socket read timeout (bypassing retries) to avoid long, redundant retry loops.
+
+---
+
+## Decision 016
+
+Title:
+Local Qwen 2.5 Routing, Connection Resiliency & Graceful Partial Progress Retention
+
+Status:
+Accepted
+
+Date:
+08/06/2026
+
+Description:
+Refactored pipeline settings and exception handling to run entirely on a local model (Qwen 2.5 7B via Ollama) without requiring remote API keys, and maximized resiliency against local processing delays:
+1. Environment Key Fallback: Cleared COMPLEX_API_KEY from .env, which forces all complex engine calls (use_complex=True) to fall back and execute on the standard local Ollama model (API_URL).
+2. Connection & Timeout Retry Resiliency: Adjusted request timeout to 300s and increased max attempts to 4 (max_retries = 3). Extended the retry loop to catch socket timeouts and TimeoutErrors (sleeping 5s before retrying) rather than failing immediately.
+3. Partial Progress Retention: Modified story_analyst.py to catch OllamaConnectionException alongside QuotaLimitReachedException. If the local model times out or disconnects after all 4 attempts, the system intercepts the error, compiles and saves the furthest progress generated up to that stage in outputs/story_blueprint.json.
+
+---
+
+## Decision 017
+
+Title:
+Blueprint Visualization Script
+
+Status:
+Accepted
+
+Date:
+08/06/2026
+
+Description:
+Added a standalone Python script `visualize_blueprint.py` at the project root to provide visual inspection of the story blueprint output without modifying any pipeline source code:
+1. Causality Graph: Reads causality_graph edges from the blueprint and renders a directed NetworkX graph showing beat-to-beat causal relationships with cause_type edge labels.
+2. Character Relationship Graph: Reads character relationships from the registry and renders an undirected NetworkX graph showing all character-to-character relationships with type labels.
+3. Narrative Tension Curve: Reads per-scene tension/energy scores and plots a matplotlib line chart showing how narrative intensity evolves across scenes.
+4. The script is self-contained and reads directly from outputs/story_blueprint.json, keeping visualization logic decoupled from the pipeline.

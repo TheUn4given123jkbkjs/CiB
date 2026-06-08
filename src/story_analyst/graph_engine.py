@@ -67,6 +67,65 @@ class GraphSynthesisEngine:
             global_edges = self._synthesize_global_causality(scenes)
             edges.extend(global_edges)
 
+        # ----------------------------------------------------
+        # Programmatic DAG Cycle Prevention (DFS cycle breaker)
+        # ----------------------------------------------------
+        from collections import defaultdict
+        
+        adj = defaultdict(list)
+        for edge in edges:
+            adj[edge["source"]].append(edge["target"])
+            
+        visited = {} # 0 = unvisited, 1 = visiting, 2 = visited
+        cycles_edges_to_remove = set()
+        
+        def dfs(u):
+            visited[u] = 1 # visiting
+            for v in adj[u]:
+                if visited.get(v, 0) == 1:
+                    cycles_edges_to_remove.add((u, v))
+                elif visited.get(v, 0) == 0:
+                    dfs(v)
+            visited[u] = 2 # visited
+            
+        for node in nodes:
+            u = node["id"]
+            if visited.get(u, 0) == 0:
+                dfs(u)
+                
+        if cycles_edges_to_remove:
+            print(f"[GraphEngine Warning]: Detected {len(cycles_edges_to_remove)} cyclic edges in causality graph. Pruning to maintain DAG structure.", flush=True)
+            edges = [e for e in edges if (e["source"], e["target"]) not in cycles_edges_to_remove]
+
+        # ----------------------------------------------------
+        # Programmatic Verbatim Evidence Backfilling
+        # ----------------------------------------------------
+        nodes_desc_map = {}
+        for b in beats:
+            nodes_desc_map[b["id"]] = (b["id"], b["description"])
+        for s in scenes:
+            climax_beat_id = s.beats[0]["id"] if s.beats else s.id
+            climax_beat_desc = s.beats[0]["description"] if s.beats else (s.summary or s.title)
+            if s.beats:
+                peak_beat = max(s.beats, key=lambda b: b.get("tension", 0.0))
+                climax_beat_id = peak_beat["id"]
+                climax_beat_desc = peak_beat["description"]
+            nodes_desc_map[s.id] = (climax_beat_id, climax_beat_desc)
+
+        for edge in edges:
+            src = edge.get("source")
+            tgt = edge.get("target")
+            
+            evidence_list = []
+            if src in nodes_desc_map:
+                bid, quote = nodes_desc_map[src]
+                evidence_list.append({"beat_id": bid, "quote": quote})
+            if tgt in nodes_desc_map:
+                bid, quote = nodes_desc_map[tgt]
+                evidence_list.append({"beat_id": bid, "quote": quote})
+                
+            edge["evidence"] = evidence_list
+
         return {
             "nodes": nodes,
             "edges": edges
@@ -100,7 +159,7 @@ class GraphSynthesisEngine:
         }}
         """
         
-        response_json = call_llm(prompt, system_instruction=system_instruction, json_mode=True)
+        response_json = call_llm(prompt, system_instruction=system_instruction, json_mode=True, use_complex=True)
         try:
             data = parse_json_response(response_json)
             return data.get("edges", [])
@@ -132,7 +191,7 @@ class GraphSynthesisEngine:
         }}
         """
         
-        response_json = call_llm(prompt, system_instruction=system_instruction, json_mode=True)
+        response_json = call_llm(prompt, system_instruction=system_instruction, json_mode=True, use_complex=True)
         try:
             data = parse_json_response(response_json)
             return data.get("edges", [])
@@ -212,7 +271,7 @@ class GraphSynthesisEngine:
         }}
         """
         
-        response_json = call_llm(prompt, system_instruction=system_instruction, json_mode=True)
+        response_json = call_llm(prompt, system_instruction=system_instruction, json_mode=True, use_complex=True)
         try:
             data = parse_json_response(response_json)
             raw_edges = data.get("edges", [])
@@ -220,6 +279,7 @@ class GraphSynthesisEngine:
             print(f"[Infer Relationships Failed] Error: {e}", flush=True)
             raw_edges = []
             
+        beat_desc_map = {b["id"]: b["description"] for b in beat_data}
         cleaned_edges = []
         me = MergeEngine()
         for edge in raw_edges:
@@ -242,12 +302,29 @@ class GraphSynthesisEngine:
                     power = entry.get("p", entry.get("power_balance", 0.0))
                     confidence = entry.get("c", entry.get("confidence", 1.0))
                     
+                    # Robustly normalize beat_id prefix for lookup in case LLM stripped/duplicated it
+                    lookup_id = beat_id
+                    if lookup_id:
+                        clean_id = str(lookup_id).replace("beat_", "")
+                        rebuilt_id = f"beat_{clean_id}"
+                        if rebuilt_id in beat_desc_map:
+                            lookup_id = rebuilt_id
+                            
+                    quote = beat_desc_map.get(lookup_id, "No description found.")
+                    evidence = [
+                        {
+                            "beat_id": lookup_id if lookup_id else beat_id,
+                            "quote": quote
+                        }
+                    ]
+                    
                     timeline.append({
-                        "beat_id": beat_id,
+                        "beat_id": lookup_id if lookup_id else beat_id,
                         "type": rel_type,
                         "valence": float(valence),
                         "power_balance": float(power),
-                        "confidence": float(confidence)
+                        "confidence": float(confidence),
+                        "evidence": evidence
                     })
                 cleaned_edges.append({
                     "source": clean_src,
