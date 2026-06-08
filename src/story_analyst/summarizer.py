@@ -53,7 +53,7 @@ class RecursiveSummarizationEngine:
         respecting a token/character context budget (~6,000 tokens or 24,000 characters).
         """
         if not node.beats:
-            node.summary = f"Phân cảnh: {node.title} không có diễn biến."
+            node.summary = f"Scene: {node.title} has no events."
             node.derived_from = []
             return
 
@@ -80,7 +80,7 @@ class RecursiveSummarizationEngine:
         
         subscene_summaries = []
         for batch_idx, batch in enumerate(batches):
-            sub_title = f"{node.title} (Phần {batch_idx + 1})" if len(batches) > 1 else node.title
+            sub_title = f"{node.title} (Part {batch_idx + 1})" if len(batches) > 1 else node.title
             
             # Format beats for prompt
             beats_input = [{"id": b["id"], "description": b["description"]} for b in batch]
@@ -94,7 +94,7 @@ class RecursiveSummarizationEngine:
             )
             
             prompt = f"""
-            Synthesize a concise summary (1 sentence, in Vietnamese, keeping all proper names) for each beat in the scene, and then compile an overall scene summary (1-2 sentences, in Vietnamese, keeping all proper names).
+            Synthesize a concise summary (1 sentence, in English, keeping all proper names) for each beat in the scene, and then compile an overall scene summary (1-2 sentences, in English, keeping all proper names).
             
             Scene Title: {sub_title}
             Beats:
@@ -103,9 +103,9 @@ class RecursiveSummarizationEngine:
             Return a JSON object with this structure:
             {{
               "beat_summaries": [
-                {{ "id": "beat_id", "summary": "tóm tắt beat..." }}
+                {{ "id": "beat_id", "summary": "concise beat summary..." }}
               ],
-              "scene_summary": "tóm tắt phân cảnh..."
+              "scene_summary": "concise scene summary..."
             }}
             """
             
@@ -118,14 +118,14 @@ class RecursiveSummarizationEngine:
                 for b in batch:
                     b["summary"] = beat_sums.get(b["id"], b["description"][:45] + "...")
                 
-                subscene_summary = data.get("scene_summary", f"Phân cảnh: {sub_title}.")
+                subscene_summary = data.get("scene_summary", f"Scene: {sub_title}.")
                 subscene_summaries.append(subscene_summary)
             except Exception as e:
                 print(f"[Summarizer Scene Fallback] Error parsing LLM response for {sub_title}: {e}", flush=True)
                 # Fallback: summarize individually
                 for b in batch:
                     b["summary"] = self._synthesize_beat(b["description"])
-                subscene_summary = f"Phân cảnh: {sub_title}. Diễn biến chính: " + " -> ".join([b["summary"] for b in batch[:2]]) + "..."
+                subscene_summary = f"Scene: {sub_title}. Key events: " + " -> ".join([b["summary"] for b in batch[:2]]) + "..."
                 subscene_summaries.append(subscene_summary)
 
         # Combine subscenes
@@ -471,10 +471,10 @@ class RecursiveSummarizationEngine:
     def _synthesize_beat(self, description: str) -> str:
         """Lightweight synthesis of raw beat description into a concise beat summary using LLM."""
         system_instruction = (
-            "Bạn là một trợ lý tóm tắt kịch bản cực ngắn. "
+            "You are a concise screenplay summarization assistant. "
             "CRITICAL RULE: You MUST retain all core entities (unique proper names of characters, locations, and specific items/weapons/relics) in the summary. Do not generalize proper nouns into generic terms."
         )
-        prompt = f"Hãy tóm tắt hành động/lời thoại sau đây thành 1 câu ngắn gọn (bằng Tiếng Việt, giữ nguyên tên riêng):\n{description}"
+        prompt = f"Summarize the following action/dialogue into 1 concise sentence (in English, keeping all proper names):\n{description}"
         result = call_llm(prompt, system_instruction=system_instruction)
         if not result or "Error call_llm" in result or "Fallback LLM" in result:
             clean = description.strip().replace("\n", " ")
@@ -487,19 +487,19 @@ class RecursiveSummarizationEngine:
         """Combines child summaries and prompts the LLM to synthesize a parent summary."""
         combined_text = "\n- ".join(summaries)
         system_instruction = (
-            "Bạn là một biên kịch lão luyện tóm tắt cấu trúc cốt truyện. "
+            "You are an experienced screenwriter specializing in narrative structure summarization. "
             "CRITICAL RULE: You MUST retain all core entities (unique proper names of characters, locations, and specific items/weapons/relics) in the summary. Do not generalize proper nouns into generic terms."
         )
-        prompt = f"Hãy tóm tắt phần '{level}' có tên '{title}' dựa trên danh sách tóm tắt con sau đây (bằng Tiếng Việt, ngắn gọn 1-2 câu, giữ nguyên tên riêng):\n- {combined_text}"
+        prompt = f"Summarize the '{level}' section titled '{title}' based on the following child summaries (in English, 1-2 sentences, keeping all proper names):\n- {combined_text}"
         
         result = call_llm(prompt, system_instruction=system_instruction)
         if not result or "Error call_llm" in result or "Fallback LLM" in result:
             if level == "scene":
-                return f"Phân cảnh: {title}. Diễn biến chính: " + " -> ".join(summaries[:2]) + "..."
+                return f"Scene: {title}. Key events: " + " -> ".join(summaries[:2]) + "..."
             elif level == "sequence":
-                return f"Chuỗi sự kiện '{title}' gồm các phân cảnh: " + ", ".join(summaries[:2])
+                return f"Sequence '{title}' comprising scenes: " + ", ".join(summaries[:2])
             elif level == "act":
-                return f"Hồi '{title}' tiến triển qua các chuỗi: " + ", ".join(summaries[:2])
+                return f"Act '{title}' progresses through sequences: " + ", ".join(summaries[:2])
             else:
-                return f"Tổng quan truyện '{title}': " + " | ".join(summaries[:2])
+                return f"Story overview '{title}': " + " | ".join(summaries[:2])
         return result

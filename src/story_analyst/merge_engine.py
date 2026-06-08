@@ -192,7 +192,7 @@ class MergeEngine:
         {{
           "facts": [
             {{
-              "fact": "Factual statement (e.g. 'Lý Vân Tiêu là học sinh')",
+              "fact": "Factual statement (e.g. 'John is a student')",
               "valid_from": "scene_id_where_fact_starts_being_true",
               "valid_to": "scene_id_where_fact_ends_or_present"
             }}

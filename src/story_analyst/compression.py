@@ -40,10 +40,10 @@ class CompressionEngine:
     def _apply_heuristic_scoring(self, beats: List[Dict[str, Any]]) -> None:
         """Stage 1: Apply rough heuristic tension/energy scoring at the beat level."""
         intensity_keywords = [
-            "gào", "hét", "quát", "chém", "giết", "chết", "ngã", "bắn", "phá", "nổ",
-            "chấn động", "đột nhiên", "run", "giật", "thất kinh", "ngơ ngác", "lạnh",
-            "bất ngờ", "run", "kill", "explosion", "suddenly", "fight", "attack",
-            "die", "dead", "scream", "shout", "clash"
+            "scream", "shout", "yell", "slash", "kill", "die", "fall", "shoot", "destroy", "explode",
+            "shockwave", "suddenly", "tremble", "jolt", "terrified", "bewildered", "cold",
+            "unexpected", "shake", "explosion", "fight", "attack",
+            "dead", "clash"
         ]
         
         for beat in beats:

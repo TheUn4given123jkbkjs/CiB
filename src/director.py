@@ -66,7 +66,7 @@ class Director:
                     script_text = f.read()
 
         print(f"[Director] Initiating Story Analyst understanding pipeline...")
-        # Thiết lập chế độ nén: "NORMAL" (mặc định), "COMPACT" (rút gọn tối đa), hoặc "FULL" (đầy đủ)
+        # Set compression mode: "NORMAL" (default), "COMPACT" (maximum compression), or "FULL" (complete detail)
         director_brief = {"blueprint_mode": "NORMAL"}
         blueprint = self.story_analyst.analyze(script_text, director_brief=director_brief)
 
